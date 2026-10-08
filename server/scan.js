@@ -15,10 +15,13 @@ export class ScanError extends Error {
 }
 
 export class ScanManager {
-  /** @param {{scanner: string, python: string, cacheDir: string}} cfg */
-  constructor({ scanner, python, cacheDir }) {
+  /**
+   * @param {{scanner: {command: string, args: string[], name?: string}, cacheDir: string}} cfg
+   *   `scanner.command scanner.args… <root> --rescan --quiet --cache-dir <dir> [--du]` must work:
+   *   both dirscan.py and scanner/gduscan.js accept these flags.
+   */
+  constructor({ scanner, cacheDir }) {
     this.scanner = scanner
-    this.python = python
     this.cacheDir = cacheDir
     /** snapshot key -> ChildProcess, for scans this server started and that are still alive */
     this.children = new Map()
@@ -63,10 +66,10 @@ export class ScanManager {
         throw Object.assign(new ScanError(409, 'EALREADY', 'this path is already being scanned'), { file: running[0] })
       }
 
-      const args = [this.scanner, root, '--rescan', '--quiet', '--cache-dir', this.cacheDir]
+      const args = [...this.scanner.args, root, '--rescan', '--quiet', '--cache-dir', this.cacheDir]
       if (du) args.push('--du')
       const spawnedAt = Math.floor(Date.now() / 1000)
-      const child = spawn(this.python, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] })
+      const child = spawn(this.scanner.command, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'] })
       let stderr = ''
       child.stderr.on('data', (d) => {
         if (stderr.length < 4096) stderr += d

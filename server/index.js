@@ -42,17 +42,17 @@ async function main() {
     process.exit(2)
   }
   if (opts.help) return console.log(USAGE)
-  if (!fs.existsSync(opts.scanner)) {
+  const { server, port, token, route, notes, scanner } = await startServer(opts)
+  if (scanner.name === 'python' && !fs.existsSync(opts.scanner)) {
     console.error(`warning: scanner not found at ${opts.scanner}; starting scans from the viewer will fail`)
   }
-
-  const { server, port, token, route, notes } = await startServer(opts)
 
   const url = `http://127.0.0.1:${port}/?token=${token}${route}`
   for (const n of notes) console.log(n)
   console.log(`\n  dirscan-view  ${url}\n`)
   console.log(`  on a remote machine? from your laptop:  ssh -L ${port}:127.0.0.1:${port} ${os.hostname()}`)
   console.log(`  then open the URL above in your local browser.\n`)
+  console.log(`  scanner: ${scanner.name} ${scanner.detail}`)
   console.log(`  cache: ${opts.cacheDir}   (Ctrl-C stops the viewer; scans it started keep running)\n`)
   if (opts.open) openBrowser(url)
 

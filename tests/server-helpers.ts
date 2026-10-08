@@ -53,7 +53,7 @@ export async function startTestServer(
   cacheDir: string,
   { args = [] as string[], distDir }: { args?: string[]; distDir?: string } = {},
 ): Promise<TestServer> {
-  const opts = parseCli(['--port', '0', '--no-open', '--cache-dir', cacheDir, ...args], REPO_ROOT)
+  const opts = parseCli(['--port', '0', '--no-open', '--engine', 'python', '--cache-dir', cacheDir, ...args], REPO_ROOT)
   const { server, port, token, scans } = await startServer(opts, { distDir: distDir ?? path.join(cacheDir, 'no-dist') })
   const base = `http://127.0.0.1:${port}`
   const api: TestServer['api'] = (p, init = {}) => {

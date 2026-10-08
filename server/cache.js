@@ -39,7 +39,7 @@ export function pidAlive(pid) {
   }
   try {
     const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'latin1')
-    if (cmd && !/python|dirscan/i.test(cmd)) return false // pid was reused by something else
+    if (cmd && !/python|dirscan|gduscan/i.test(cmd)) return false // pid was reused by something else
   } catch {
     // no /proc, or cmdline hidden: trust kill()
   }

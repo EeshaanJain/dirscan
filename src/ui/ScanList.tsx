@@ -15,7 +15,8 @@ import { HardDriveIcon } from 'lucide-react'
 export interface ScanListProps {
   scans: ScanEntry[]
   onOpen: (file: string) => void
-  onChanged: () => void
+  /** refresh the scan list (awaited before opening a scan that was just started) */
+  onChanged: () => void | Promise<void>
 }
 
 export function ScanList({ scans, onOpen, onChanged }: ScanListProps) {
@@ -51,10 +52,13 @@ export function ScanList({ scans, onOpen, onChanged }: ScanListProps) {
       try {
         const { file } = await startScan(s.root, s.mode === 'du')
         toast.add({ title: 'Scan started', description: s.root, type: 'success' })
+        await onChanged()
         onOpen(file)
       } catch (e) {
-        if (e instanceof ApiError && e.file) onOpen(e.file)
-        else toast.add({ title: 'Could not start the scan', description: (e as Error).message, type: 'error' })
+        if (e instanceof ApiError && e.file) {
+          await onChanged()
+          onOpen(e.file)
+        } else toast.add({ title: 'Could not start the scan', description: (e as Error).message, type: 'error' })
       }
     })
 

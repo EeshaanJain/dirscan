@@ -8,7 +8,8 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { toast } from '@/components/ui/toast'
 import { ApiError, startScan } from '@/lib/api'
 
-export function NewScanForm({ onStarted }: { onStarted: (file: string) => void }) {
+/** `onStarted` may be async: the scan list must know the new scan before the view opens it. */
+export function NewScanForm({ onStarted }: { onStarted: (file: string) => void | Promise<void> }) {
   const [path, setPath] = useState('')
   const [mode, setMode] = useState<'apparent' | 'du'>('apparent')
   const [busy, setBusy] = useState(false)
@@ -22,11 +23,11 @@ export function NewScanForm({ onStarted }: { onStarted: (file: string) => void }
       const { file } = await startScan(root, mode === 'du')
       toast.add({ title: 'Scan started', description: root, type: 'success' })
       setPath('')
-      onStarted(file)
+      await onStarted(file)
     } catch (err) {
       if (err instanceof ApiError && err.file) {
         toast.add({ title: 'Already scanning', description: 'Following the running scan.' })
-        onStarted(err.file)
+        await onStarted(err.file)
       } else {
         toast.add({ title: 'Could not start the scan', description: (err as Error).message, type: 'error' })
       }

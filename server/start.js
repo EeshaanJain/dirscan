@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app.js'
 import { deriveState, readIndex } from './cache.js'
+import { findGdu, gduVersion } from '../scanner/gdu-bin.js'
 import { ScanManager } from './scan.js'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -100,6 +101,26 @@ export async function resolveTarget({ target, scan, du, cacheDir }, scans) {
   return out
 }
 
+/**
+ * Which scanner the viewer starts. `auto` takes gdu when it can be found, else dirscan.py.
+ * @returns {{command: string, args: string[], name: string, detail: string}}
+ */
+export function chooseScanner(opts) {
+  const gdu = opts.engine === 'python' ? null : findGdu(opts.gdu)
+  if (opts.engine === 'gdu' && !gdu) {
+    throw new Error('--engine gdu, but no gdu was found (use --gdu PATH or $DIRSCAN_GDU)')
+  }
+  if (gdu) {
+    return {
+      command: process.execPath,
+      args: [path.join(REPO_ROOT, 'scanner', 'gduscan.js'), '--gdu', gdu],
+      name: 'gdu',
+      detail: `${gduVersion(gdu) ?? 'gdu'} (${gdu})`,
+    }
+  }
+  return { command: opts.python, args: [opts.scanner], name: 'python', detail: opts.scanner }
+}
+
 function listen(server, host, port, fixed) {
   const tries = fixed || port === 0 ? 1 : 20
   return (async () => {
@@ -126,7 +147,8 @@ function listen(server, host, port, fixed) {
  */
 export async function startServer(opts, { token, distDir = path.join(REPO_ROOT, 'dist') } = {}) {
   token ??= crypto.randomBytes(24).toString('base64url')
-  const scans = new ScanManager({ scanner: opts.scanner, python: opts.python, cacheDir: opts.cacheDir })
+  const scanner = chooseScanner(opts)
+  const scans = new ScanManager({ scanner, cacheDir: opts.cacheDir })
   const target = await resolveTarget(opts, scans)
   const server = createApp({
     token,
@@ -137,5 +159,5 @@ export async function startServer(opts, { token, distDir = path.join(REPO_ROOT, 
     distDir,
   })
   const port = await listen(server, opts.host, opts.port, opts.portFixed)
-  return { server, port, token, scans, ...target }
+  return { server, port, token, scans, scanner, ...target }
 }

@@ -9,7 +9,7 @@ export function Dashboard({ onOpen }: { onOpen: (file: string) => void }) {
   const { scans, info, error, refresh } = useScans()
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
-      <NewScanForm onStarted={(file) => { void refresh(); onOpen(file) }} />
+      <NewScanForm onStarted={async (file) => { await refresh(); onOpen(file) }} />
       {error && (
         <Alert variant="destructive">
           <AlertCircleIcon />
@@ -22,7 +22,7 @@ export function Dashboard({ onOpen }: { onOpen: (file: string) => void }) {
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 w-full" />)}
         </div>
       ) : (
-        scans && <ScanList scans={scans} onOpen={onOpen} onChanged={() => void refresh()} />
+        scans && <ScanList scans={scans} onOpen={onOpen} onChanged={() => refresh()} />
       )}
       {info && (
         <p className="text-xs text-muted-foreground">

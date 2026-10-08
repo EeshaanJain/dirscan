@@ -12,9 +12,10 @@ where the files actually are, which is often a remote cluster reached over SSH.
    largest-files list, sparse files (size vs. size on disk), symlinks, and directories the scan
    has not reached yet.
 
-It is a personal tool that runs from this repo, not a published package. `dirscan.py` and its file
-formats are untouched; the viewer treats the formats in [`VIEWER_SPEC.md`](VIEWER_SPEC.md) as a fixed
-contract.
+It is a personal tool that runs from this repo, not a published package. Scans are done by
+**[gdu](https://github.com/dundee/gdu)** (about 4× faster than the Python scanner), with `dirscan.py` as a
+fallback engine; both write the same cache files, so the UI cannot tell them apart. The formats in
+[`VIEWER_SPEC.md`](VIEWER_SPEC.md) are a fixed contract.
 
 ## Setup
 
@@ -45,7 +46,9 @@ npm start -- <snapshot.json>       # open one snapshot (also a file copied from 
 | `--host 127.0.0.1` | Loopback addresses only; anything else is refused. |
 | `--no-open` | Don't try to open a browser (it is also skipped over SSH or without a display). |
 | `--cache-dir <dir>` | dirscan's cache (default `$XDG_CACHE_HOME/dirscan` or `~/.cache/dirscan`). |
-| `--scanner ./dirscan.py` / `--python python3` | What to run when you start a scan from the viewer. |
+| `--engine auto\|gdu\|python` | Scanner for scans started from the viewer (default `auto`: gdu if found, else Python). |
+| `--gdu <path>` | The gdu binary. Default: `$DIRSCAN_GDU`, then `gdu` on `$PATH`. An explicit path is never silently replaced by another gdu. |
+| `--scanner ./dirscan.py` / `--python python3` | What the `python` engine runs. |
 
 On start it prints a URL with a random token:
 
@@ -68,6 +71,43 @@ from the URL, kept in `sessionStorage` for that tab, and removed from the addres
 
 A scan started with `dirscan.py` on another node of a shared cache shows up as *on node07* and is not
 followed (its files are on a different machine). Run dirscan-view on that node instead.
+
+## Scan engines
+
+The viewer reads dirscan's cache (`index.json`, `<name>.json` snapshots, `<name>.events.ndjson` streams);
+it does not care who wrote them. Two things can:
+
+- **`scanner/gduscan.js`** (default): runs gdu and writes the same files. It takes the same flags as
+  `dirscan.py` (`ROOT --du --rescan --quiet --cache-dir …`), so it is also usable on its own:
+  `node scanner/gduscan.js <dir> [--du] [--rescan]`.
+- **`dirscan.py`**: the original single-threaded Python walker, kept as a fallback for machines without gdu.
+
+Measured on the same 1.5M-file, 124k-directory, 8.3 TB tree (warm cache): **gdu 53 s, gduscan.js 59 s,
+dirscan.py 220 s.** A gdu scan and a Python scan of the same root share one snapshot key, so each replaces
+the other's result.
+
+**Live following with gdu.** gdu writes its JSON export only when it finishes, so it cannot be tailed. To
+keep the live treemap, `gduscan.js` reads the top few directory levels itself (cheap), then runs gdu once
+per directory below them (3 at a time) and turns each finished export into the usual `n`/`s` events at once.
+The treemap therefore fills in piece by piece, with finished pieces ticked ✓, instead of directory by
+directory. gdu's own totals are ignored: sizes are re-summed from its per-file entries so they mean exactly
+what `dirscan.py` computed (regular files only, each hardlink counted, no size for directories themselves);
+unreadable directories come from gdu's error log. For both `--du` and apparent mode one run holds both
+numbers. Tests check that every directory, total, extension and large file is identical to `dirscan.py`'s on
+the same tree, in both modes.
+
+Differences to know about:
+
+- **Lumpy progress.** A piece is one directory; if one directory holds most of the data, the view sits still
+  while gdu works on it (on the 1.5M-file tree the last ~300k files arrived as one piece after a 40 s pause in which
+  the counters stood still while the elapsed time kept ticking). Directories with more than 20,000 entries or 256 subdirectories are not split
+  further.
+- **Fifos.** gdu marks sockets and symlinks as non-regular but not fifos, so inside a directory that gdu
+  scans, a fifo counts as an empty file (sizes are unaffected). Directories read by the planner are exact.
+- **Interrupted scans are exact.** A directory is only counted when it is finished, so unlike `dirscan.py` the
+  partial snapshot of a stopped scan matches its event stream exactly.
+- A scan of a single huge flat directory (or one with a huge number of entries) is one gdu run, so it shows
+  nothing until it is done.
 
 ## What's in the UI
 
@@ -140,10 +180,14 @@ npm run synthetic -- --dirs 1000000   # write fixtures/synthetic-1m.json to try 
 ```
 
 Tests build their fixtures by running the real `dirscan.py` on small synthetic trees (including one
-interrupted with SIGTERM) into `fixtures/cache/` (git-ignored; regenerated when `dirscan.py` changes).
+interrupted with SIGTERM) into `fixtures/cache/` (git-ignored; regenerated when `dirscan.py` changes). The
+gdu engine's tests need a gdu binary (they are skipped without one) and compare its output with `dirscan.py`'s
+on trees with symlinks, hardlinks, sparse and empty files, odd names and unreadable directories, replay its
+events through the reducer, and interrupt it with SIGTERM.
 
 ```
 server/       CLI, HTTP server, tailing, spawning, path guards (plain Node, no framework)
+scanner/      the gdu engine: export parser, chunk planner, scan state, cache-file writer, CLI
 src/lib/      pure TypeScript: snapshot parsing, event reducer, tree, treemap layout, search, store
 src/ui/       app components built from the shadcn components
 src/hooks/    routing, scan list polling, scan lifecycle
@@ -171,7 +215,7 @@ so nothing had to be substituted. Things that differ from older shadcn/React-Tab
 
 ## Known limitations
 
-- **Interrupted scans and the live tree.** If `dirscan.py` is killed by SIGTERM *during* `scandir` of a
+- **Interrupted scans and the live tree (Python engine).** If `dirscan.py` is killed by SIGTERM *during* `scandir` of a
   directory, it counts that directory's files so far into the snapshot but never emits an `s` event for
   it (and does not mark it visited). The event stream therefore cannot reproduce those bytes: the live tree
   can be short by that one directory's own files until the final `e` event, when the viewer switches to the
